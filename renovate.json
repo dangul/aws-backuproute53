@@ -1,0 +1,32 @@
+{
+  "extends": ["config:recommended"],
+
+  "dependencyDashboard": true,
+
+  "labels": ["dependencies"],
+
+  "assignees": ["dangul"],
+  "reviewers": ["dangul"],
+
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["major"],
+      "labels": ["dependencies", "major"]
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "labels": ["dependencies", "minor"],
+      "automerge": true
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "all non-major dependencies"
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ubuntu"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
+  ]
+}
