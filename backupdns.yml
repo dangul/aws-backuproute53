@@ -14,6 +14,14 @@ Parameters:
     Type: String
     Description: 'Expire CloudWatch log after (days)'
     Default: '14'
+  TestNotification:
+    Type: String
+    Description: 'Set to a non-empty value (for example TEST) to send a test email on each Lambda invocation'
+    Default: ''
+  NotificationEmail:
+    Type: String
+    Description: 'Email address that receives Route 53 backup notifications'
+    Default: 'notifications@example.com'
 
 Resources:
   BackupFunctionRole:
@@ -50,6 +58,10 @@ Resources:
                 Action:
                   - 'kms:GenerateDataKey'
                 Resource: !Ref DestinationKMS
+              - Effect: 'Allow'
+                Action:
+                  - 'sns:Publish'
+                Resource: !Ref FailedBackupAlarmTopic
 
   BackupFunction:
     Type: 'AWS::Lambda::Function'
@@ -145,6 +157,15 @@ Resources:
 
           def lambda_handler(event, context):
               logger.info("Lambda function started.")
+              if os.environ.get("TEST"):
+                sns_client = boto3.client("sns")
+                sns_client.publish(
+                  TopicArn=os.environ["SNS_TOPIC_ARN"],
+                  Subject="Route 53 backup test notification",
+                  Message="Test notification from the Route 53 backup Lambda.",
+                )
+                logger.info("Test notification sent.")
+
               route53_client = boto3.client("route53")
 
               # Paginate over all hosted zones
@@ -185,6 +206,8 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME: !Ref S3BucketName
+          SNS_TOPIC_ARN: !Ref FailedBackupAlarmTopic
+          TEST: !Ref TestNotification
 
   BackupFunctionTrigger:
     Type: 'AWS::Events::Rule'
@@ -220,7 +243,38 @@ Resources:
           MetricValue: '1'
           DefaultValue: 0
 
+  FailedBackupAlarmTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      DisplayName: 'Route 53 backup failures'
+
+  FailedBackupEmailSubscription:
+    Type: 'AWS::SNS::Subscription'
+    Properties:
+      TopicArn: !Ref FailedBackupAlarmTopic
+      Protocol: 'email'
+      Endpoint: !Ref NotificationEmail
+
+  FailedBackupAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'One or more Route 53 zone backups failed.'
+      Namespace: 'Route53Backup'
+      MetricName: 'FailedBackups'
+      Statistic: 'Sum'
+      Period: 300
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      Threshold: 1
+      ComparisonOperator: 'GreaterThanOrEqualToThreshold'
+      TreatMissingData: 'notBreaching'
+      AlarmActions:
+        - !Ref FailedBackupAlarmTopic
+
 Outputs:
   BackupFunctionArn:
     Description: 'ARN of the backup Lambda function'
     Value: !GetAtt BackupFunction.Arn
+  FailedBackupAlarmTopicArn:
+    Description: 'SNS topic ARN for Route 53 backup failure notifications'
+    Value: !Ref FailedBackupAlarmTopic
